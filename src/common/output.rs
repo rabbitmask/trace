@@ -226,7 +226,7 @@ pub fn print_unauth_candidates_summary(result: &UnauthCandidatesResult, cfg: &Ap
     );
     println!(
         "{}",
-        make_single_row(width, &format!("目标唯一条目 {}", result.unique), Align::Left)
+        make_single_row(width, &format!("目标唯一条目 {}", result.unique), Align::Center)
     );
     println!("{}", painter.paint(&single_border(width, '='), Style::Border));
 
