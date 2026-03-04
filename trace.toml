@@ -1,0 +1,293 @@
+﻿# ============================================================
+# trace（WAF日志分析工具）配置文件
+# ------------------------------------------------------------
+# 使用说明（建议先看）：
+# 1) 程序启动时必须存在本文件；缺失会直接退出。
+# 2) 本文件按模块分区，优先改“词库/正则/阈值”即可。
+# 3) 所有开关和规则均尽量配置化，避免改代码。
+# ============================================================
+
+# ------------------------------------------------------------
+# ① 公共过滤模块（资产统计 + 未授权测试共同生效）
+# ------------------------------------------------------------
+[filter]
+# 是否启用全局状态码过滤。
+# true  = 仅处理 allow_status_ranges 命中的日志行
+# false = 不按状态码过滤
+status_filter_enabled = true
+
+# 允许的状态码区间（闭区间，可多段）。
+# 格式：["起始-结束", "起始-结束"]
+# 示例：["200-399", "404-404"]
+allow_status_ranges = ["200-399"]
+
+# 路径后缀黑名单（命中后整条日志忽略）。
+# 主要用于去掉静态资源噪声。
+ignore_path_suffixes = [
+  ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg",
+  ".map", ".ttf", ".woff", ".woff2",".jpg/show"
+]
+
+# ------------------------------------------------------------
+# ② 公共 Web 请求模块（资产探测 / 未授权探测共用）
+# ------------------------------------------------------------
+[web_request]
+# 并发请求数（默认 30）。
+# 目标系统压力敏感时建议降到 10~20。
+concurrency = 30
+
+# 单个请求超时时间（秒）。
+timeout_secs = 5
+
+# 最大读取响应体字节数（防止大包占用内存）。
+# 同时用于 TITLE 提取、未授权智能识别内容分析。
+max_body_bytes = 262144
+
+# 智能识别时保留的正文预览字符数。
+# 值越大，识别更准但更慢。
+body_preview_chars = 2000
+
+# 提取 TITLE 的最大长度（超出截断）。
+max_title_len = 200
+
+# 探测请求 User-Agent 列表（每次请求随机选择其一）。
+user_agents = [
+  "trace/0.1",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0"
+]
+
+# ------------------------------------------------------------
+# ③ 资产模块
+# ------------------------------------------------------------
+[asset]
+# URL 展示时可省略的端口。
+# 例如配置 443 后，https://a.com:443/x 显示为 https://a.com/x
+elide_ports = [443,80]
+
+[asset_path]
+# 一级路径为目录型时是否保留尾斜杠（例如 /xx/login.jsp -> /xx/）
+keep_dir_trailing_slash = true
+
+# 单段文件型路径是否跳过（例如 /ad_display.jspx）。
+# true 时，像 /a.jsp、/login.php 这类“单段且包含点”的路径会被跳过。
+skip_single_file_like = true
+
+[asset_probe]
+# 是否对资产 URL 发起主动 GET 探测（填充 STATUS_CODE/TITLE）。
+# true  = 探测
+# false = 不探测（对应字段为空）
+enabled = true
+
+# ------------------------------------------------------------
+# ④ 未授权测试模块
+# ------------------------------------------------------------
+[unauth_probe]
+# 是否对未授权目标 URL 发起主动 GET 探测（影响 STATUS_CODE/TITLE/智能识别输入）。
+# 建议：
+# - 初次摸底：false（先看目标规模）
+# - 进入验证：true（拿到状态码/标题并做识别）
+enabled = true
+
+# 是否导出未授权目标 CSV（仅控制导出；不等同于是否探测）。
+export_candidates = true
+
+# 未授权目标的状态码筛选（一般先看 200）。
+allow_status_ranges = ["200-200"]
+
+# query 参数脱敏策略：
+# true  = 所有参数值都脱敏
+# false = 仅敏感参数值脱敏（由 redact_query_key_keywords 控制）
+redact_query_values = false
+
+# 当 redact_query_values=false 时，命中这些关键词的参数名会脱敏。
+redact_query_key_keywords = [
+  "token", "auth", "sign", "secret",
+  "password", "passwd", "pwd", "session", "cookie", "key"
+]
+
+# 同一 (scheme, host, port, path) 最多保留多少条 URL（按频次 TopN）。
+# 0 表示不限制（可能很多）。
+max_uris_per_path = 1
+
+# 未授权目标导出文件名（位于 output.out_dir 下）。
+candidates_csv_file = "unauth_targets.csv"
+
+# ------------------------------------------------------------
+# ④-1 未授权智能识别建模（关键词 + 正则）
+# ------------------------------------------------------------
+[unauth_intel]
+# 智能识别总开关：
+# true  = 输出 RISK_LEVEL/SCORE/REASONS
+# false = 不做识别（字段为空）
+enabled = true
+
+# 风险分级阈值：
+# score >= high_risk_score   => HIGH
+# score >= medium_risk_score => MEDIUM
+# 其余                         LOW
+high_risk_score = 70
+medium_risk_score = 40
+
+# 单条结果最多展示多少条命中原因（REASONS）。
+max_reason_count = 8
+
+# 单类“关键词”最多计入多少次命中，防止分数失真。
+max_keyword_hits_per_class = 3
+
+# 单类“正则”最多计入多少次命中，防止分数失真。
+max_regex_hits_per_class = 3
+
+# -------------------- 打分权重（可按实际调优） --------------------
+# 状态码 200 基础加分。
+score_http_200 = 10
+
+# 命中鉴权状态码（401/403）时分值（通常负分）。
+score_auth_required = -20
+
+# 命中服务错误状态码（5xx）时分值（通常负分）。
+score_server_error = -15
+
+# 响应判定为 JSON 时加分。
+score_json_response = 18
+
+# 响应判定为 HTML 壳页时减分。
+score_html_shell = -12
+
+# 命中登录/认证特征时减分。
+score_login_page = -35
+
+# 单个敏感关键词命中的加分。
+score_sensitive_keyword = 20
+
+# 单个敏感正则命中的加分（一般高于关键词）。
+score_sensitive_regex = 25
+
+# 单个业务关键词命中的加分。
+score_business_keyword = 10
+
+# 单个业务正则命中的加分。
+score_business_regex = 12
+
+# 单个低价值关键词命中的减分。
+score_noise_keyword = -8
+
+# 单个低价值正则命中的减分。
+score_noise_regex = -10
+
+# URL/PATH 命中 API/管理路径特征时加分。
+score_api_path = 8
+
+# -------------------- 词库：敏感信息（关键词） --------------------
+# 用途：粗粒度命中敏感内容。
+sensitive_keywords = [
+  "token", "access_key", "secret", "password", "ak", "sk",
+  "phone", "mobile", "id_card", "bank_card", "身份证", "手机号"
+]
+
+# -------------------- 词库：业务信息（关键词） --------------------
+# 用途：命中业务字段，辅助判断“不是无聊页面”。
+business_keywords = [
+  "user", "username", "mobile", "phone", "order",
+  "customer", "amount", "balance", "real_name", "address"
+]
+
+# -------------------- 词库：低价值噪声（关键词） --------------------
+# 用途：登录页、前端壳页、通用落地页等降分。
+noise_keywords = [
+  "login", "signin", "sso", "captcha", "copyright", "javascript", "登录", "验证码"
+]
+
+# -------------------- 词库：登录认证（关键词） --------------------
+# 用途：命中认证场景，通常不属于“未授权可读”。
+login_keywords = [
+  "login", "signin", "sso", "oauth", "passport", "auth", "cas", "登录", "认证"
+]
+
+# -------------------- 词库：路径特征（关键词） --------------------
+# 用途：URL/PATH 命中后小幅加分。
+api_path_keywords = [
+  "/api", "/admin", "/internal", "/open", "/v1", "/v2", "/v3"
+]
+
+# -------------------- 正则：敏感信息 --------------------
+# 用途：高价值命中，优先级高于关键词。
+sensitive_regexes = [
+  # 常见密钥字段 + 可疑值
+  "(?i)\\b(access[_-]?key|api[_-]?key|token|secret|passwd|password)\\b\\s*[:=]\\s*[A-Za-z0-9_\\-]{8,}",
+  # 中国大陆手机号（11位）
+  "\\b1[3-9]\\d{9}\\b",
+  # 中国身份证号（18位，含X）
+  "\\b\\d{6}(19|20)\\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\\d|3[01])\\d{3}[\\dXx]\\b",
+  # AWS Access Key 常见格式
+  "(?i)\\bAKIA[0-9A-Z]{16}\\b",
+  "(?i)\\bASIA[0-9A-Z]{16}\\b",
+  # 阿里云 AK 常见前缀（简化匹配）
+  "(?i)\\bLTAI[a-z0-9]{12,}\\b"
+]
+
+# -------------------- 正则：业务信息 --------------------
+# 用途：JSON/文本中命中业务字段结构，说明可能是业务接口数据。
+business_regexes = [
+  # JSON key 命中业务字段名
+  "(?i)\"(user(id|name)?|mobile|phone|order(_?id|_?no)?|customer(_?id)?|amount|balance|real_name|address)\"\\s*:",
+  # 文本 key=value 或 key: value 场景
+  "(?i)\\b(order_no|order_id|customer_id|user_id)\\b\\s*[:=]\\s*[\"']?[A-Za-z0-9\\-_]{4,}"
+]
+
+# -------------------- 正则：低价值噪声 --------------------
+# 用途：识别前端壳/登录表单，降噪。
+noise_regexes = [
+  "(?i)<form[^>]*>.*(login|signin|password).*?</form>",
+  "(?i)<script[^>]*src="
+]
+
+# -------------------- 正则：登录认证 --------------------
+# 用途：强登录特征识别，通常大幅降分。
+login_regexes = [
+  "(?i)\\b(login|signin|sso|oauth|passport|cas)\\b",
+  "(?i)(username|account).*(password)|(password).*(captcha)"
+]
+
+# ------------------------------------------------------------
+# ⑤ 路径归一化模块（用于未授权目标降噪）
+# ------------------------------------------------------------
+[path_normalization]
+# 总开关。
+enabled = true
+
+# 规则：纯数字段替换为 {int}
+replace_int_segment = true
+
+# 规则：UUID 段替换为 {uuid}
+replace_uuid_segment = true
+
+# 规则：长十六进制段替换为 {hex}
+replace_hex_segment = true
+
+# 判定 hex 的最小长度（过小容易误伤）。
+min_hex_len = 8
+
+# ------------------------------------------------------------
+# ⑥ 输出模块
+# ------------------------------------------------------------
+[output]
+# 输出目录
+out_dir = "out"
+
+# 输出格式：csv | json | both
+format = "csv"
+
+# 终端颜色：auto | always | never
+color = "auto"
+
+# 资产输出文件名
+csv_file = "assets.csv"
+
+# JSON 输出文件名
+json_file = "assets.json"
+
+# 控制台摘要显示前 N 条
+console_top = 20
