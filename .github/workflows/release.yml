@@ -11,20 +11,59 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.os }}
+    name: Build ${{ matrix.platform }}-${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            asset_name: trace-linux-x86_64.tar.gz
+            platform: linux
+            arch: x86_64
+            target: x86_64-unknown-linux-gnu
+            use_cross: false
+            archive: tar.gz
+            asset_name: trace-linux-amd64.tar.gz
+            bin_name: trace
+          - os: ubuntu-latest
+            platform: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            use_cross: true
+            archive: tar.gz
+            asset_name: trace-linux-arm64.tar.gz
             bin_name: trace
           - os: windows-latest
-            asset_name: trace-windows-x86_64.zip
+            platform: windows
+            arch: x86_64
+            target: x86_64-pc-windows-msvc
+            use_cross: false
+            archive: zip
+            asset_name: trace-windows-amd64.zip
             bin_name: trace.exe
-          - os: macos-latest
-            asset_name: trace-macos-x86_64.tar.gz
+          - os: windows-latest
+            platform: windows
+            arch: aarch64
+            target: aarch64-pc-windows-msvc
+            use_cross: false
+            archive: zip
+            asset_name: trace-windows-arm64.zip
+            bin_name: trace.exe
+          - os: macos-13
+            platform: macos
+            arch: x86_64
+            target: x86_64-apple-darwin
+            use_cross: false
+            archive: tar.gz
+            asset_name: trace-macos-amd64.tar.gz
+            bin_name: trace
+          - os: macos-14
+            platform: macos
+            arch: aarch64
+            target: aarch64-apple-darwin
+            use_cross: false
+            archive: tar.gz
+            asset_name: trace-macos-arm64.tar.gz
             bin_name: trace
 
     steps:
@@ -37,14 +76,29 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Add rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Setup cross (Linux ARM)
+        if: runner.os == 'Linux' && matrix.use_cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
       - name: Build release
-        run: cargo build --release
+        shell: bash
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
 
       - name: Package (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist
-          cp target/release/${{ matrix.bin_name }} dist/
+          cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} dist/
           cp trace.toml dist/
           cp README.md dist/
           tar -czf ${{ matrix.asset_name }} -C dist .
@@ -54,7 +108,7 @@ jobs:
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item "target/release/${{ matrix.bin_name }}" "dist/"
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "dist/"
           Copy-Item "trace.toml" "dist/"
           Copy-Item "README.md" "dist/"
           Compress-Archive -Path "dist/*" -DestinationPath "${{ matrix.asset_name }}"
