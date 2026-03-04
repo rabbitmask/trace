@@ -49,22 +49,6 @@ jobs:
             archive: zip
             asset_name: trace-windows-arm64.zip
             bin_name: trace.exe
-          - os: macos-13
-            platform: macos
-            arch: x86_64
-            target: x86_64-apple-darwin
-            use_cross: false
-            archive: tar.gz
-            asset_name: trace-macos-amd64.tar.gz
-            bin_name: trace
-          - os: macos-14
-            platform: macos
-            arch: aarch64
-            target: aarch64-apple-darwin
-            use_cross: false
-            archive: tar.gz
-            asset_name: trace-macos-arm64.tar.gz
-            bin_name: trace
 
     steps:
       - name: Checkout
